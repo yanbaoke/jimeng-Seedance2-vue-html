@@ -1,9 +1,9 @@
 <template>
   <div class="generation-form">
-    <!-- 中间内容区 -->
-    <div class="main-area">
-      <!-- 无任务时：空状态 -->
-      <div v-if="!currentTask && !generating" class="empty-state">
+    <!-- 聊天内容区 -->
+    <div class="main-area" ref="chatArea">
+      <!-- 无消息时：空状态 -->
+      <div v-if="messages.length === 0 && !generating" class="empty-state">
         <div class="empty-icon">🎬</div>
         <div class="empty-title">使用官方api接口，开启你的新创作</div>
         <div class="empty-title">为漫剧公司定制版本，公司子账号分配，公司资产管理，不受人员离职影响。接口速度更快。</div>
@@ -11,45 +11,73 @@
         <img src="/3.png" alt="微信二维码" style="width:160px;margin-top:8px;border-radius:8px" />
       </div>
 
-      <!-- 生成中 -->
-      <div v-if="generating" class="loading-state">
-        <el-icon :size="40" class="is-loading" color="var(--accent)"><Loading /></el-icon>
-        <p class="loading-text">任务创建中...</p>
-      </div>
-
-      <!-- 任务状态展示 -->
-      <div v-if="currentTask" class="task-result-area">
-        <div class="result-header">
-          <el-tag :type="statusTagType(currentTask.status)" size="default" effect="plain">
-            {{ statusLabel(currentTask.status) }}
-          </el-tag>
-          <span class="task-id-text">任务ID: {{ currentTask.id }}</span>
-        </div>
-
-        <!-- 视频预览 -->
-        <div v-if="currentTask.status === 'succeeded' && currentTask.content?.video_url" class="video-result">
-          <video :src="currentTask.content.video_url" controls class="result-video" />
-          <el-button type="primary" class="download-btn" @click="downloadVideo(currentTask.content.video_url)">
-            <el-icon><Download /></el-icon> 下载视频
-          </el-button>
-        </div>
-
-        <!-- 排队/生成中 -->
-        <div v-else-if="['queued', 'running'].includes(currentTask.status)" class="pending-state">
-          <el-icon :size="48" class="is-loading" color="var(--accent)"><Loading /></el-icon>
-          <p>{{ currentTask.status === 'queued' ? '排队中，请稍候...' : '正在生成视频...' }}</p>
-        </div>
-
-        <!-- 失败 -->
-        <div v-else-if="currentTask.status === 'failed'" class="error-state">
-          <el-icon :size="40" color="var(--danger)"><WarningFilled /></el-icon>
-          <p class="error-msg">{{ currentTask.error?.message || '生成失败，请重试' }}</p>
-        </div>
-
-        <!-- 超时/取消 -->
-        <div v-else-if="['expired', 'cancelled'].includes(currentTask.status)" class="error-state">
-          <el-icon :size="40" color="var(--warning)"><WarningFilled /></el-icon>
-          <p>{{ statusLabel(currentTask.status) }}</p>
+      <!-- 消息列表 -->
+      <div class="chat-messages" v-if="messages.length > 0">
+        <div
+          v-for="msg in messages"
+          :key="msg.id"
+          :class="['chat-msg', msg.role]"
+        >
+          <!-- 头像 -->
+          <div class="msg-avatar">
+            <div v-if="msg.role === 'user'" class="avatar avatar-user">你</div>
+            <div v-else class="avatar avatar-bot">AI</div>
+          </div>
+          <!-- 消息体 -->
+          <div class="msg-body">
+            <!-- 用户消息 -->
+            <template v-if="msg.role === 'user'">
+              <div class="msg-text">{{ msg.content }}</div>
+              <div v-if="msg.images && msg.images.length" class="msg-images">
+                <img v-for="(img, i) in msg.images" :key="i" :src="img" class="msg-img-thumb" />
+              </div>
+              <div class="msg-meta">{{ msg.modelName }} · {{ msg.ratio }} · {{ msg.duration }}s · {{ msg.resolution }}</div>
+            </template>
+            <!-- 助手回复 -->
+            <template v-else>
+              <!-- 任务创建中 -->
+              <div v-if="msg.loading" class="reply-loading">
+                <el-icon :size="18" class="is-loading" color="var(--accent)"><Loading /></el-icon>
+                <span>任务创建中...</span>
+              </div>
+              <!-- 任务状态 -->
+              <template v-if="msg.task">
+                <div class="reply-status">
+                  <el-tag :type="statusTagType(msg.task.status)" size="small" effect="plain">
+                    {{ statusLabel(msg.task.status) }}
+                  </el-tag>
+                  <span class="task-id-text">任务ID: {{ msg.task.id }}</span>
+                </div>
+                <!-- 视频 -->
+                <div v-if="msg.task.status === 'succeeded' && msg.task.content?.video_url" class="reply-video">
+                  <video :src="msg.task.content.video_url" controls class="result-video" />
+                  <el-button type="primary" size="small" class="download-btn" @click="downloadVideo(msg.task.content.video_url)">
+                    <el-icon><Download /></el-icon> 下载视频
+                  </el-button>
+                </div>
+                <!-- 排队/生成中 -->
+                <div v-else-if="['queued', 'running'].includes(msg.task.status)" class="reply-pending">
+                  <el-icon :size="22" class="is-loading" color="var(--accent)"><Loading /></el-icon>
+                  <span>{{ msg.task.status === 'queued' ? '排队中，请稍候...' : '正在生成视频...' }}</span>
+                </div>
+                <!-- 失败 -->
+                <div v-else-if="msg.task.status === 'failed'" class="reply-error">
+                  <el-icon :size="18" color="var(--danger)"><WarningFilled /></el-icon>
+                  <span>{{ msg.task.error?.message || '生成失败，请重试' }}</span>
+                </div>
+                <!-- 超时/取消 -->
+                <div v-else-if="['expired', 'cancelled'].includes(msg.task.status)" class="reply-error">
+                  <el-icon :size="18" color="var(--warning)"><WarningFilled /></el-icon>
+                  <span>{{ statusLabel(msg.task.status) }}</span>
+                </div>
+              </template>
+              <!-- 错误 -->
+              <div v-if="msg.error" class="reply-error">
+                <el-icon :size="18" color="var(--danger)"><WarningFilled /></el-icon>
+                <span>{{ msg.error }}</span>
+              </div>
+            </template>
+          </div>
         </div>
       </div>
     </div>
@@ -289,7 +317,7 @@
 </template>
 
 <script setup>
-import { ref, reactive, computed, watch, onUnmounted } from 'vue'
+import { ref, reactive, computed, watch, onUnmounted, nextTick } from 'vue'
 import { ElMessage } from 'element-plus'
 import {
   Plus, Close, VideoCamera, Download, WarningFilled,
@@ -320,11 +348,13 @@ const form = reactive({
 })
 
 const generating = ref(false)
-const currentTask = ref(null)
+const messages = ref([])
+const chatArea = ref(null)
 const fileInput = ref(null)
 const showRefDialog = ref(false)
 let uploadTarget = { type: '', index: -1 }
 let pollTimer = null
+let msgIdCounter = 0
 
 const modes = [
   { value: 'text2video', label: '文生视频' },
@@ -488,6 +518,14 @@ function buildContent() {
   return content
 }
 
+function scrollToBottom() {
+  nextTick(() => {
+    if (chatArea.value) {
+      chatArea.value.scrollTop = chatArea.value.scrollHeight
+    }
+  })
+}
+
 async function handleGenerate() {
   if (!props.apiKey) {
     ElMessage.error('请先设置 API Key')
@@ -496,7 +534,42 @@ async function handleGenerate() {
   if (!canGenerate.value) return
 
   generating.value = true
-  currentTask.value = null
+
+  // 收集用户消息中的图片
+  const userImages = []
+  if (['first_frame', 'first_last_frame'].includes(form.mode) && form.firstFramePreview) {
+    userImages.push(form.firstFramePreview)
+  }
+  if (form.mode === 'first_last_frame' && form.lastFramePreview) {
+    userImages.push(form.lastFramePreview)
+  }
+  if (form.mode === 'reference') {
+    form.refImages.forEach(img => { if (img.preview) userImages.push(img.preview) })
+  }
+
+  // 用户消息
+  const userMsg = {
+    id: ++msgIdCounter,
+    role: 'user',
+    content: form.prompt || '(无文字描述)',
+    images: userImages,
+    modelName: modelShortName.value,
+    ratio: form.ratio === 'adaptive' ? '自适应' : form.ratio,
+    duration: form.duration,
+    resolution: form.resolution
+  }
+  messages.value.push(userMsg)
+
+  // 助手回复占位
+  const botMsg = {
+    id: ++msgIdCounter,
+    role: 'assistant',
+    loading: true,
+    task: null,
+    error: ''
+  }
+  messages.value.push(botMsg)
+  scrollToBottom()
 
   try {
     const params = {
@@ -512,23 +585,27 @@ async function handleGenerate() {
     }
 
     const result = await createTask(props.apiKey, params)
-    currentTask.value = { id: result.id, status: 'queued' }
-    ElMessage.success('任务创建成功')
-    startPolling(result.id)
+    botMsg.loading = false
+    botMsg.task = { id: result.id, status: 'queued' }
+    scrollToBottom()
+    startPolling(result.id, botMsg.id)
   } catch (err) {
-    const msg = err.response?.data?.error?.message || err.message || '创建任务失败'
-    ElMessage.error(msg)
+    botMsg.loading = false
+    botMsg.error = err.response?.data?.error?.message || err.message || '创建任务失败'
+    scrollToBottom()
   } finally {
     generating.value = false
   }
 }
 
-function startPolling(taskId) {
+function startPolling(taskId, botMsgId) {
   stopPolling()
   pollTimer = setInterval(async () => {
     try {
       const task = await getTask(props.apiKey, taskId)
-      currentTask.value = task
+      const botMsg = messages.value.find(m => m.id === botMsgId)
+      if (botMsg) botMsg.task = task
+      scrollToBottom()
       if (['succeeded', 'failed', 'expired', 'cancelled'].includes(task.status)) {
         stopPolling()
         if (task.status === 'succeeded') {
@@ -592,8 +669,13 @@ onUnmounted(() => {
   display: flex;
   flex-direction: column;
   align-items: center;
-  justify-content: center;
+  justify-content: flex-start;
   overflow-y: auto;
+  padding: 24px 24px 12px;
+}
+
+.main-area:has(.empty-state) {
+  justify-content: center;
   padding: 40px 24px;
 }
 
@@ -614,78 +696,156 @@ onUnmounted(() => {
   margin-bottom: 8px;
 }
 
-.empty-subtitle {
-  font-size: 14px;
+/* 聊天消息列表 */
+.chat-messages {
+  width: 100%;
+  max-width: 800px;
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+  padding-bottom: 12px;
 }
 
-.loading-state {
-  text-align: center;
+.chat-msg {
+  display: flex;
+  gap: 12px;
+  align-items: flex-start;
+}
+
+.chat-msg.user {
+  flex-direction: row-reverse;
+}
+
+.msg-avatar {
+  flex-shrink: 0;
+}
+
+.avatar {
+  width: 36px;
+  height: 36px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.avatar-user {
+  background: var(--accent);
+  color: #fff;
+}
+
+.avatar-bot {
+  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+  color: #fff;
+}
+
+.msg-body {
+  max-width: 70%;
+  min-width: 0;
+}
+
+.chat-msg.user .msg-body {
+  align-items: flex-end;
+}
+
+/* 用户消息气泡 */
+.msg-text {
+  background: var(--accent);
+  color: #fff;
+  padding: 10px 14px;
+  border-radius: 16px 16px 4px 16px;
+  font-size: 14px;
+  line-height: 1.6;
+  word-break: break-word;
+  white-space: pre-wrap;
+}
+
+.msg-images {
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
+  margin-top: 6px;
+}
+
+.msg-img-thumb {
+  width: 64px;
+  height: 64px;
+  object-fit: cover;
+  border-radius: 8px;
+  border: 1px solid var(--border-color);
+}
+
+.msg-meta {
+  font-size: 11px;
+  color: var(--text-muted);
+  margin-top: 4px;
+  text-align: right;
+}
+
+/* 助手回复区域 */
+.reply-loading {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  background: var(--bg-input);
+  padding: 10px 14px;
+  border-radius: 16px 16px 16px 4px;
+  font-size: 13px;
   color: var(--text-secondary);
 }
 
-.loading-text {
-  margin-top: 12px;
-  font-size: 14px;
-}
-
-/* 任务结果区 */
-.task-result-area {
-  width: 100%;
-  max-width: 720px;
-}
-
-.result-header {
+.reply-status {
   display: flex;
   align-items: center;
-  gap: 12px;
-  margin-bottom: 16px;
+  gap: 8px;
+  margin-bottom: 8px;
 }
 
-.task-id-text {
-  font-size: 12px;
+.reply-status .task-id-text {
+  font-size: 11px;
   color: var(--text-muted);
   font-family: monospace;
 }
 
-.video-result {
-  text-align: center;
+.reply-video {
+  background: var(--bg-input);
+  padding: 12px;
+  border-radius: 16px 16px 16px 4px;
 }
 
-.result-video {
+.reply-video .result-video {
   width: 100%;
-  max-height: 450px;
-  border-radius: var(--radius);
+  max-height: 400px;
+  border-radius: 8px;
   background: #000;
 }
 
-.download-btn {
-  margin-top: 16px;
+.reply-video .download-btn {
+  margin-top: 8px;
 }
 
-.pending-state {
-  text-align: center;
-  padding: 60px 0;
-  color: var(--text-secondary);
-  font-size: 14px;
-}
-
-.pending-state p {
-  margin-top: 16px;
-}
-
-.error-state {
-  text-align: center;
-  padding: 60px 0;
+.reply-pending {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  background: var(--bg-input);
+  padding: 14px 16px;
+  border-radius: 16px 16px 16px 4px;
+  font-size: 13px;
   color: var(--text-secondary);
 }
 
-.error-state p {
-  margin-top: 12px;
-  font-size: 14px;
-}
-
-.error-msg {
-  color: var(--danger) !important;
+.reply-error {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  background: var(--bg-input);
+  padding: 10px 14px;
+  border-radius: 16px 16px 16px 4px;
+  font-size: 13px;
+  color: var(--text-secondary);
 }
 
 /* 底部输入栏 */
